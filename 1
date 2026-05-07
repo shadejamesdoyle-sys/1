@@ -1,0 +1,224 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import AppLogo from '@/components/ui/AppLogo';
+import {
+  LayoutDashboard,
+  Briefcase,
+  FileText,
+  ShoppingCart,
+  Package,
+  Layers,
+  Users,
+  Calendar,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Wrench,
+  Tag,
+  TrendingUp,
+  LogOut,
+} from 'lucide-react';
+
+import { logout } from '@/lib/auth';
+import Icon from '@/components/ui/AppIcon';
+
+// ⭐ Import your data getters
+import {
+  getJobs,
+  getInvoices,
+  getPurchaseOrders,
+} from '@/lib/store';
+
+// ⭐ NAV GROUPS now dynamic
+const NAV_GROUPS = (jobsCount: number, invoicesCount: number, poCount: number) => [
+  {
+    label: 'Operations',
+    items: [
+      { label: 'Dashboard', href: '/', icon: LayoutDashboard, badge: null },
+      { label: 'Jobs', href: '/jobs-management', icon: Briefcase, badge: jobsCount },
+      { label: 'Invoices', href: '/invoice-management', icon: FileText, badge: invoicesCount },
+      { label: 'Quotes', href: '/quotes', icon: Tag, badge: null },
+      { label: 'Purchase Orders', href: '/purchase-orders', icon: ShoppingCart, badge: poCount },
+    ],
+  },
+  {
+    label: 'Inventory',
+    items: [
+      { label: 'Stock Items', href: '/stock-items', icon: Package, badge: null },
+      { label: 'Stock Products', href: '/stock-products', icon: Layers, badge: null },
+      { label: 'Labour Types', href: '/labour-types', icon: Wrench, badge: null },
+    ],
+  },
+  {
+    label: 'Business',
+    items: [
+      { label: 'Accounts', href: '/accounts', icon: Users, badge: null },
+      { label: 'Analytics', href: '/analytics', icon: TrendingUp, badge: null },
+      { label: 'Calendar', href: '/calendar', icon: Calendar, badge: null },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { label: 'Settings', href: '/settings', icon: Settings, badge: null },
+    ],
+  },
+];
+
+export default function Sidebar() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [collapsed, setCollapsed] = useState(false);
+
+  // ⭐ Live counts
+  const jobsCount = getJobs().length;
+  const invoicesCount = getInvoices().length;
+  const poCount = getPurchaseOrders().length;
+
+  // ⭐ Build nav with live data
+  const navGroups = NAV_GROUPS(jobsCount, invoicesCount, poCount);
+
+  function handleLogout() {
+    logout();
+    router?.replace('/login');
+  }
+
+  return (
+    <aside
+      className="flex flex-col h-screen sticky top-0 z-40 transition-all duration-300 ease-in-out"
+      style={{
+        width: collapsed ? '64px' : '224px',
+        minWidth: collapsed ? '64px' : '224px',
+        background: '#0c0c10',
+        borderRight: '1px solid var(--border)',
+      }}
+    >
+      {/* Logo */}
+      <div className="flex items-center h-14 px-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <AppLogo size={28} />
+          {!collapsed && (
+            <span className="font-bold text-sm tracking-tight text-foreground truncate">
+              TradeDesk
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+        {navGroups.map((group) => (
+          <div key={`group-${group.label}`}>
+            {!collapsed && (
+              <p className="text-2xs font-600 text-muted-foreground uppercase tracking-widest px-2 mb-1">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const isActive = pathname === item.href;
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={`nav-${item.href}`}
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    className={`flex items-center gap-2.5 px-2 py-2 text-sm font-medium transition-all duration-150 relative group ${
+                      isActive
+                        ? 'bg-purple-subtle text-accent border-l-2 border-primary'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    }`}
+                    style={{ borderRadius: '2px' }}
+                  >
+                    <Icon size={16} className="flex-shrink-0" />
+
+                    {!collapsed && (
+                      <span className="truncate flex-1">{item.label}</span>
+                    )}
+
+                    {/* Expanded badge */}
+                    {!collapsed && item.badge !== null && item.badge > 0 && (
+                      <span
+                        className="ml-auto text-2xs font-700 px-1.5 py-0.5 rounded"
+                        style={{
+                          background: 'var(--red-bg)',
+                          color: 'var(--red-light)',
+                          border: '1px solid var(--red)',
+                          fontSize: '0.625rem',
+                        }}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+
+                    {/* Collapsed badge dot */}
+                    {collapsed && item.badge !== null && item.badge > 0 && (
+                      <span
+                        className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
+                        style={{ background: 'var(--red-light)' }}
+                      />
+                    )}
+
+                    {/* Tooltip when collapsed */}
+                    {collapsed && (
+                      <div
+                        className="absolute left-full ml-2 px-2 py-1 text-xs font-medium text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50"
+                        style={{
+                          background: '#1e1e28',
+                          border: '1px solid var(--border)',
+                          borderRadius: '2px',
+                        }}
+                      >
+                        {item.label}
+                      </div>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer */}
+      <div className="p-2 border-t border-border flex-shrink-0">
+        <div className={`flex items-center gap-2 p-2 ${collapsed ? 'justify-center' : ''}`}>
+          <div
+            className="w-7 h-7 rounded-sm flex items-center justify-center text-xs font-bold flex-shrink-0"
+            style={{ background: 'var(--primary)', color: '#fff' }}
+          >
+            TD
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-600 text-foreground truncate">TradeDesk Ops</p>
+              <p className="text-2xs text-muted-foreground truncate">admin@tradedesk.co.nz</p>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={handleLogout}
+          title="Sign out"
+          className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-red-400 hover:bg-muted transition-colors mt-1 ${
+            collapsed ? 'justify-center' : ''
+          }`}
+          style={{ borderRadius: '2px' }}
+        >
+          <LogOut size={13} className="flex-shrink-0" />
+          {!collapsed && <span>Sign Out</span>}
+        </button>
+      </div>
+    </aside>
+  );
+}
