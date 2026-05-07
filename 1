@@ -1,224 +1,444 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import AppLogo from '@/components/ui/AppLogo';
-import {
-  LayoutDashboard,
-  Briefcase,
-  FileText,
-  ShoppingCart,
-  Package,
-  Layers,
-  Users,
-  Calendar,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Wrench,
-  Tag,
-  TrendingUp,
-  LogOut,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import Modal from '@/components/ui/Modal';
+import type { Job } from '@/lib/mock-data';
+import { getCustomers, getBrands, getSettings } from '@/lib/store';
+import { Plus, Minus } from 'lucide-react';
 
-import { logout } from '@/lib/auth';
-import Icon from '@/components/ui/AppIcon';
+interface CreateJobModalProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (job: Job) => void;
+}
 
-// ⭐ Import your data getters
-import {
-  getJobs,
-  getInvoices,
-  getPurchaseOrders,
-} from '@/lib/store';
+export default function CreateJobModal({ open, onClose, onCreated }: CreateJobModalProps) {
+  const [customers, setCustomers] = useState(getCustomers());
+  const [brands, setBrands] = useState(getBrands());
 
-// ⭐ NAV GROUPS now dynamic
-const NAV_GROUPS = (jobsCount: number, invoicesCount: number, poCount: number) => [
-  {
-    label: 'Operations',
-    items: [
-      { label: 'Dashboard', href: '/', icon: LayoutDashboard, badge: null },
-      { label: 'Jobs', href: '/jobs-management', icon: Briefcase, badge: jobsCount },
-      { label: 'Invoices', href: '/invoice-management', icon: FileText, badge: invoicesCount },
-      { label: 'Quotes', href: '/quotes', icon: Tag, badge: null },
-      { label: 'Purchase Orders', href: '/purchase-orders', icon: ShoppingCart, badge: poCount },
-    ],
-  },
-  {
-    label: 'Inventory',
-    items: [
-      { label: 'Stock Items', href: '/stock-items', icon: Package, badge: null },
-      { label: 'Stock Products', href: '/stock-products', icon: Layers, badge: null },
-      { label: 'Labour Types', href: '/labour-types', icon: Wrench, badge: null },
-    ],
-  },
-  {
-    label: 'Business',
-    items: [
-      { label: 'Accounts', href: '/accounts', icon: Users, badge: null },
-      { label: 'Analytics', href: '/analytics', icon: TrendingUp, badge: null },
-      { label: 'Calendar', href: '/calendar', icon: Calendar, badge: null },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { label: 'Settings', href: '/settings', icon: Settings, badge: null },
-    ],
-  },
-];
+  const [form, setForm] = useState({
+    jobNumber: '',
+    title: '',
+    description: '',
+    customerId: '',
+    brandId: '',
+    dueDate: '',
+    assignedDate: new Date().toISOString().split('T')[0],
+    isCash: false,
+    isInternal: false,
+    depositRequired: false,
+    depositAmount: '',
+    notes: '',
+    quoteStatus: 'none' as Job['quoteStatus'],
+    designStatus: 'none' as Job['designStatus'],
+    sections: [] as { id: string; name: string }[],
+  });
 
-export default function Sidebar() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // ⭐ Live counts
-  const jobsCount = getJobs().length;
-  const invoicesCount = getInvoices().length;
-  const poCount = getPurchaseOrders().length;
+  // Auto-fill job number when modal opens
+  useEffect(() => {
+    if (open) {
+      setCustomers(getCustomers());
+      setBrands(getBrands());
 
-  // ⭐ Build nav with live data
-  const navGroups = NAV_GROUPS(jobsCount, invoicesCount, poCount);
+      const settings = getSettings();
+      const jobNum = settings.jobStartNumber + Math.floor(Math.random() * 10) + 5;
+      const autoNumber = `JOB-${String(jobNum).padStart(4, '0')}`;
 
-  function handleLogout() {
-    logout();
-    router?.replace('/login');
+      setForm((f) => ({ ...f, jobNumber: autoNumber }));
+    }
+  }, [open]);
+
+  function validate() {
+    const e: Record<string, string> = {};
+    if (!form.title.trim()) e.title = 'Job title is required';
+    if (!form.brandId) e.brandId = 'Brand is required';
+    if (!form.dueDate) e.dueDate = 'Due date is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function handleSubmit() {
+    if (!validate()) return;
+    setLoading(true);
+
+    setTimeout(() => {
+      const settings = getSettings();
+
+      const newJob: Job = {
+        id: `job-${Date.now()}`,
+        jobNumber: form.jobNumber, // ← uses the editable field
+        customerId: form.customerId,
+        brandId: form.brandId,
+        title: form.title,
+        description: form.description,
+        status: 'draft',
+        quoteStatus: form.quoteStatus,
+        designStatus: form.designStatus,
+        depositRequired: form.depositRequired,
+        depositAmount: form.depositRequired ? parseFloat(form.depositAmount) || 0 : 0,
+        depositPaid: false,
+        isCash: form.isCash,
+        isInternal: form.isInternal,
+        checklist: settings.checklistItems
+          .filter((ci) => ci.defaultEnabled)
+          .map((ci) => ({ id: `cl-new-${ci.id}`, label: ci.label, checked: false })),
+        checklistDisabled: form.isInternal,
+        sections: form.sections.map((s) => ({ id: s.id, name: s.name, lineItems: [] })),
+        lineItems: [],
+        linkedPOIds: [],
+        assignedDate: form.assignedDate,
+        dueDate: form.dueDate,
+        notes: form.notes,
+        markupPercent: 0,
+        discountPercent: 0,
+        atCostPrice: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      onCreated(newJob);
+      setLoading(false);
+      onClose();
+
+      // Reset form
+      setForm({
+        jobNumber: '',
+        title: '',
+        description: '',
+        customerId: '',
+        brandId: '',
+        dueDate: '',
+        assignedDate: new Date().toISOString().split('T')[0],
+        isCash: false,
+        isInternal: false,
+        depositRequired: false,
+        depositAmount: '',
+        notes: '',
+        quoteStatus: 'none',
+        designStatus: 'none',
+        sections: [],
+      });
+    }, 400);
+  }
+
+  function addSection() {
+    setForm((f) => ({
+      ...f,
+      sections: [...f.sections, { id: `ns-${Date.now()}`, name: '' }],
+    }));
+  }
+
+  function removeSection(id: string) {
+    setForm((f) => ({
+      ...f,
+      sections: f.sections.filter((s) => s.id !== id),
+    }));
+  }
+
+  function updateSectionName(id: string, name: string) {
+    setForm((f) => ({
+      ...f,
+      sections: f.sections.map((s) => (s.id === id ? { ...s, name } : s)),
+    }));
   }
 
   return (
-    <aside
-      className="flex flex-col h-screen sticky top-0 z-40 transition-all duration-300 ease-in-out"
-      style={{
-        width: collapsed ? '64px' : '224px',
-        minWidth: collapsed ? '64px' : '224px',
-        background: '#0c0c10',
-        borderRight: '1px solid var(--border)',
-      }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Create New Job"
+      subtitle="Fill in the details to create a new job card"
+      size="lg"
+      footer={
+        <>
+          <button className="btn-secondary text-xs py-1.5 px-3" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary text-xs py-1.5 px-4 flex items-center gap-2 min-w-[120px] justify-center"
+            onClick={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : null}
+            {loading ? 'Creating...' : 'Create Job'}
+          </button>
+        </>
+      }
     >
-      {/* Logo */}
-      <div className="flex items-center h-14 px-3 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <AppLogo size={28} />
-          {!collapsed && (
-            <span className="font-bold text-sm tracking-tight text-foreground truncate">
-              TradeDesk
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
-      </div>
+      <div className="space-y-5">
+        {/* JOB DETAILS */}
+        <div className="space-y-3">
+          <p className="text-xs font-700 text-muted-foreground uppercase tracking-wider">
+            Job Details
+          </p>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-        {navGroups.map((group) => (
-          <div key={`group-${group.label}`}>
-            {!collapsed && (
-              <p className="text-2xs font-600 text-muted-foreground uppercase tracking-widest px-2 mb-1">
-                {group.label}
+          {/* Job Title */}
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">
+              Job Title <span className="text-red-400">*</span>
+            </label>
+            <input
+              className="input-field"
+              placeholder="e.g. Custom Trailer Build — 6x4 Tandem"
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              onFocus={(e) => e.target.select()}
+            />
+            {errors.title && (
+              <p className="text-xs mt-1" style={{ color: 'var(--red-light)' }}>
+                {errors.title}
               </p>
             )}
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const isActive = pathname === item.href;
-                const Icon = item.icon;
-
-                return (
-                  <Link
-                    key={`nav-${item.href}`}
-                    href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-2.5 px-2 py-2 text-sm font-medium transition-all duration-150 relative group ${
-                      isActive
-                        ? 'bg-purple-subtle text-accent border-l-2 border-primary'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                    }`}
-                    style={{ borderRadius: '2px' }}
-                  >
-                    <Icon size={16} className="flex-shrink-0" />
-
-                    {!collapsed && (
-                      <span className="truncate flex-1">{item.label}</span>
-                    )}
-
-                    {/* Expanded badge */}
-                    {!collapsed && item.badge !== null && item.badge > 0 && (
-                      <span
-                        className="ml-auto text-2xs font-700 px-1.5 py-0.5 rounded"
-                        style={{
-                          background: 'var(--red-bg)',
-                          color: 'var(--red-light)',
-                          border: '1px solid var(--red)',
-                          fontSize: '0.625rem',
-                        }}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-
-                    {/* Collapsed badge dot */}
-                    {collapsed && item.badge !== null && item.badge > 0 && (
-                      <span
-                        className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
-                        style={{ background: 'var(--red-light)' }}
-                      />
-                    )}
-
-                    {/* Tooltip when collapsed */}
-                    {collapsed && (
-                      <div
-                        className="absolute left-full ml-2 px-2 py-1 text-xs font-medium text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50"
-                        style={{
-                          background: '#1e1e28',
-                          border: '1px solid var(--border)',
-                          borderRadius: '2px',
-                        }}
-                      >
-                        {item.label}
-                      </div>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
           </div>
-        ))}
-      </nav>
 
-      {/* Footer */}
-      <div className="p-2 border-t border-border flex-shrink-0">
-        <div className={`flex items-center gap-2 p-2 ${collapsed ? 'justify-center' : ''}`}>
-          <div
-            className="w-7 h-7 rounded-sm flex items-center justify-center text-xs font-bold flex-shrink-0"
-            style={{ background: 'var(--primary)', color: '#fff' }}
-          >
-            TD
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Description</label>
+            <textarea
+              className="input-field"
+              rows={2}
+              placeholder="Brief description of the work to be done..."
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
           </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-600 text-foreground truncate">TradeDesk Ops</p>
-              <p className="text-2xs text-muted-foreground truncate">admin@tradedesk.co.nz</p>
+
+          {/* NEW JOB NUMBER FIELD — placed at bottom of Job Details */}
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Job Number</label>
+            <input
+              className="input-field font-tabular"
+              value={form.jobNumber}
+              onChange={(e) => setForm((f) => ({ ...f, jobNumber: e.target.value }))}
+              onFocus={(e) => e.target.select()}
+            />
+          </div>
+        </div>
+
+        {/* CUSTOMER + BRAND — alignment fixed */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Customer */}
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Customer</label>
+            <p className="text-2xs text-muted-foreground mb-1">Leave blank for internal jobs</p>
+            <select
+              className="input-field"
+              value={form.customerId}
+              onChange={(e) => setForm((f) => ({ ...f, customerId: e.target.value }))}
+            >
+              <option value="">— Internal / No Customer —</option>
+              {customers.map((c) => (
+                <option key={`cj-${c.id}`} value={c.id}>
+                  {c.name}
+                  {c.company ? ` — ${c.company}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Brand — add invisible spacer to align with Customer */}
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Brand *</label>
+            <p className="text-2xs text-transparent mb-1">spacer</p>
+            <select
+              className="input-field"
+              value={form.brandId}
+              onChange={(e) => setForm((f) => ({ ...f, brandId: e.target.value }))}
+            >
+              <option value="">— Select Brand —</option>
+              {brands.map((b) => (
+                <option key={`bj-${b.id}`} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            {errors.brandId && (
+              <p className="text-xs mt-1" style={{ color: 'var(--red-light)' }}>
+                {errors.brandId}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* DATES */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Assigned Date</label>
+            <input
+              type="date"
+              className="input-field"
+              value={form.assignedDate}
+              onChange={(e) => setForm((f) => ({ ...f, assignedDate: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">
+              Due Date <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="date"
+              className="input-field"
+              value={form.dueDate}
+              onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+            />
+            {errors.dueDate && (
+              <p className="text-xs mt-1" style={{ color: 'var(--red-light)' }}>
+                {errors.dueDate}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* QUOTE + DESIGN STATUS */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Quote Status</label>
+            <select
+              className="input-field"
+              value={form.quoteStatus}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, quoteStatus: e.target.value as Job['quoteStatus'] }))
+              }
+            >
+              <option value="none">None</option>
+              <option value="draft">Draft</option>
+              <option value="sent">Sent</option>
+              <option value="accepted">Accepted</option>
+              <option value="declined">Declined</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-600 text-foreground mb-1">Design Status</label>
+            <select
+              className="input-field"
+              value={form.designStatus}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, designStatus: e.target.value as Job['designStatus'] }))
+              }
+            >
+              <option value="none">None</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+
+        {/* JOB FLAGS */}
+        <div className="space-y-2">
+          <p className="text-xs font-700 text-muted-foreground uppercase tracking-wider">
+            Job Flags
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { key: 'isCash', label: 'Cash Job', desc: 'Excluded from revenue calculations' },
+              { key: 'isInternal', label: 'Internal Job', desc: 'Cost tracking only — no invoice' },
+              {
+                key: 'depositRequired',
+                label: 'Deposit Required',
+                desc: 'Require deposit before starting',
+              },
+            ].map((flag) => (
+              <label
+                key={`flag-${flag.key}`}
+                className="flex items-start gap-2.5 p-2.5 cursor-pointer hover:bg-muted/30 transition-colors"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '2px',
+                  background:
+                    (form as Record<string, unknown>)[flag.key] === true
+                      ? 'var(--purple-bg)'
+                      : 'var(--input)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={(form as Record<string, unknown>)[flag.key] as boolean}
+                  onChange={(e) => setForm((f) => ({ ...f, [flag.key]: e.target.checked }))}
+                  className="mt-0.5 flex-shrink-0"
+                />
+                <div>
+                  <p className="text-xs font-600 text-foreground">{flag.label}</p>
+                  <p className="text-2xs text-muted-foreground">{flag.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {form.depositRequired && (
+            <div>
+              <label className="block text-xs font-600 text-foreground mb-1">
+                Deposit Amount ($)
+              </label>
+              <input
+                type="number"
+                className="input-field w-40"
+                placeholder="0.00"
+                value={form.depositAmount}
+                onChange={(e) => setForm((f) => ({ ...f, depositAmount: e.target.value }))}
+                onFocus={(e) => e.target.select()}
+              />
             </div>
           )}
         </div>
-        <button
-          onClick={handleLogout}
-          title="Sign out"
-          className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-red-400 hover:bg-muted transition-colors mt-1 ${
-            collapsed ? 'justify-center' : ''
-          }`}
-          style={{ borderRadius: '2px' }}
-        >
-          <LogOut size={13} className="flex-shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
-        </button>
+
+        {/* JOB SECTIONS */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-700 text-muted-foreground uppercase tracking-wider">
+              Job Sections
+            </p>
+            <button onClick={addSection} className="btn-ghost text-xs flex items-center gap-1">
+              <Plus size={11} /> Add Section
+            </button>
+          </div>
+
+          {form.sections.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No sections — all line items will be at the top level.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {form.sections.map((sec) => (
+                <div key={`ns-${sec.id}`} className="flex items-center gap-2">
+                  <input
+                    className="input-field flex-1 text-sm"
+                    placeholder="Section name (e.g. Chassis, Electrical)"
+                    value={sec.name}
+                    onChange={(e) => updateSectionName(sec.id, e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button
+                    onClick={() => removeSection(sec.id)}
+                    className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
+                    style={{ borderRadius: '2px' }}
+                  >
+                    <Minus size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* NOTES */}
+        <div>
+          <label className="block text-xs font-600 text-foreground mb-1">Notes</label>
+          <textarea
+            className="input-field"
+            rows={2}
+            placeholder="Any additional notes for this job..."
+            value={form.notes}
+            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+          />
+        </div>
       </div>
-    </aside>
+    </Modal>
   );
 }
